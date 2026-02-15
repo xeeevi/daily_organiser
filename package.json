@@ -1,0 +1,51 @@
+{
+  "name": "daily-organiser",
+  "version": "1.0.0",
+  "description": "A productivity CLI tool for macOS with todo lists and note-taking",
+  "main": "dist/index.js",
+  "bin": {
+    "daily": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "!dist/__tests__"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xeeevi/daily_organiser.git"
+  },
+  "keywords": [
+    "cli",
+    "productivity",
+    "todo",
+    "notes",
+    "organizer"
+  ],
+  "author": "xeeevi (https://github.com/xeeevi)",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/xeeevi/daily_organiser/issues"
+  },
+  "homepage": "https://github.com/xeeevi/daily_organiser#readme",
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.7.1",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.5",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "readline": "^1.3.0"
+  }
+}

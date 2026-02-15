@@ -1,0 +1,159 @@
+import * as storage from '../storage';
+import { Todo } from '../types';
+
+// Mock the storage module
+jest.mock('../storage');
+
+// Mock chalk completely
+jest.mock('chalk', () => ({
+  default: new Proxy({}, {
+    get: () => (str: any) => str,
+  }),
+}));
+
+// Mock console to suppress output
+console.log = jest.fn();
+
+describe('Commands Business Logic', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('addTodo', () => {
+    it('should create a todo with all required fields', () => {
+      const mockTodos: Todo[] = [];
+      (storage.loadTodos as jest.Mock).mockReturnValue(mockTodos);
+      (storage.saveTodos as jest.Mock).mockImplementation((todos: Todo[]) => {
+        expect(todos).toHaveLength(1);
+        expect(todos[0]).toHaveProperty('id');
+        expect(todos[0]).toHaveProperty('text');
+        expect(todos[0]).toHaveProperty('completed');
+        expect(todos[0]).toHaveProperty('createdAt');
+        expect(todos[0].completed).toBe(false);
+      });
+
+      const { addTodo } = require('../commands');
+      addTodo('Test task');
+
+      expect(storage.loadTodos).toHaveBeenCalled();
+      expect(storage.saveTodos).toHaveBeenCalled();
+    });
+
+    it('should create a todo with due date when provided', () => {
+      const mockTodos: Todo[] = [];
+      (storage.loadTodos as jest.Mock).mockReturnValue(mockTodos);
+      (storage.saveTodos as jest.Mock).mockImplementation((todos: Todo[]) => {
+        expect(todos[0]).toHaveProperty('dueDate');
+        expect(todos[0].dueDate).toBeInstanceOf(Date);
+      });
+
+      const { addTodo } = require('../commands');
+      addTodo('Test task', '2025-10-15 14:30');
+
+      expect(storage.saveTodos).toHaveBeenCalled();
+    });
+  });
+
+  describe('completeTodo', () => {
+    it('should mark todo as completed by index', () => {
+      const mockTodos: Todo[] = [
+        {
+          id: '1',
+          text: 'Test task',
+          completed: false,
+          createdAt: new Date(),
+        },
+      ];
+      (storage.loadTodos as jest.Mock).mockReturnValue(mockTodos);
+      (storage.saveTodos as jest.Mock).mockImplementation((todos: Todo[]) => {
+        expect(todos[0].completed).toBe(true);
+        expect(todos[0].completedAt).toBeInstanceOf(Date);
+      });
+
+      const { completeTodo } = require('../commands');
+      completeTodo('1');
+
+      expect(storage.saveTodos).toHaveBeenCalled();
+    });
+
+    it('should mark todo as completed by ID', () => {
+      const mockTodos: Todo[] = [
+        {
+          id: 'abc-123',
+          text: 'Test task',
+          completed: false,
+          createdAt: new Date(),
+        },
+      ];
+      (storage.loadTodos as jest.Mock).mockReturnValue(mockTodos);
+      (storage.saveTodos as jest.Mock).mockImplementation((todos: Todo[]) => {
+        expect(todos[0].completed).toBe(true);
+      });
+
+      const { completeTodo } = require('../commands');
+      completeTodo('abc-123');
+
+      expect(storage.saveTodos).toHaveBeenCalled();
+    });
+
+    it('should not save when todo is not found', () => {
+      (storage.loadTodos as jest.Mock).mockReturnValue([]);
+
+      const { completeTodo } = require('../commands');
+      completeTodo('999');
+
+      expect(storage.saveTodos).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteTodo', () => {
+    it('should remove todo by index', () => {
+      const mockTodos: Todo[] = [
+        {
+          id: '1',
+          text: 'Test task',
+          completed: false,
+          createdAt: new Date(),
+        },
+      ];
+      (storage.loadTodos as jest.Mock).mockReturnValue(mockTodos);
+      (storage.saveTodos as jest.Mock).mockImplementation((todos: Todo[]) => {
+        expect(todos).toHaveLength(0);
+      });
+
+      const { deleteTodo } = require('../commands');
+      deleteTodo('1');
+
+      expect(storage.saveTodos).toHaveBeenCalled();
+    });
+
+    it('should remove todo by ID', () => {
+      const mockTodos: Todo[] = [
+        {
+          id: 'abc-123',
+          text: 'Test task',
+          completed: false,
+          createdAt: new Date(),
+        },
+      ];
+      (storage.loadTodos as jest.Mock).mockReturnValue(mockTodos);
+      (storage.saveTodos as jest.Mock).mockImplementation((todos: Todo[]) => {
+        expect(todos).toHaveLength(0);
+      });
+
+      const { deleteTodo } = require('../commands');
+      deleteTodo('abc-123');
+
+      expect(storage.saveTodos).toHaveBeenCalled();
+    });
+
+    it('should not save when todo is not found', () => {
+      (storage.loadTodos as jest.Mock).mockReturnValue([]);
+
+      const { deleteTodo } = require('../commands');
+      deleteTodo('999');
+
+      expect(storage.saveTodos).not.toHaveBeenCalled();
+    });
+  });
+});

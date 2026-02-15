@@ -1,0 +1,21 @@
+# Source files (dist is published)
+src/
+
+# Tests
+__tests__/
+*.test.ts
+jest.config.js
+
+# Development files
+CLAUDE.md
+setup.sh
+tsconfig.json
+.github/
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.log
+.DS_Store
