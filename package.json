@@ -1,6 +1,6 @@
 {
   "name": "daily-organiser",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A productivity CLI tool for macOS with todo lists and note-taking",
   "main": "dist/index.js",
   "bin": {

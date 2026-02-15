@@ -129,6 +129,30 @@ export function completeTodo(indexOrId: string): void {
   console.log(chalk.green('✓'), 'Completed:', chalk.strikethrough(todo.text));
 }
 
+export function toggleTodo(indexOrId: string): void {
+  const todos = loadTodos();
+
+  const index = parseInt(indexOrId) - 1;
+  let todo: Todo | undefined;
+
+  if (!isNaN(index) && index >= 0 && index < todos.length) {
+    todo = todos[index];
+  } else {
+    todo = todos.find(t => t.id === indexOrId);
+  }
+
+  if (!todo) {
+    console.log(chalk.red('✗'), 'Todo not found');
+    return;
+  }
+
+  if (todo.completed) {
+    undoneTodo(indexOrId);
+  } else {
+    completeTodo(indexOrId);
+  }
+}
+
 export function undoneTodo(indexOrId: string): void {
   const todos = loadTodos();
 
