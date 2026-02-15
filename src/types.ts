@@ -11,3 +11,5 @@ export interface Todo {
 export interface TodoStore {
   todos: Todo[];
 }
+
+export type Mode = 'todo' | 'notes';
