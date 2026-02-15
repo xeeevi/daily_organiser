@@ -79,7 +79,7 @@ daily
 
 ## Storage
 
-Data syncs via iCloud Drive when available:
+Your data is yours. Everything is stored as plain JSON and Markdown files on your local filesystem — no accounts, no third-party servers, no telemetry. If iCloud Drive is available, data is kept in your iCloud directory and synced by Apple between your devices:
 
 ```
 ~/Library/Mobile Documents/com~apple~CloudDocs/daily_organiser/
