@@ -3,16 +3,22 @@
 A fast, interactive CLI for managing todos and notes from your terminal.
 
 ```
-daily> add "Review PR" --due "2025-10-15 14:30"
+daily:todo> add "Review PR" --due "2025-10-15 14:30"
 ✓ Added: Review PR (due Oct 15, 2:30 PM)
 
-daily> list
+daily:todo> ls
   1. [ ] Review PR  ⏰ Oct 15, 2:30 PM
   2. [ ] Write docs
   3. [✓] Fix login bug
 
-daily> done 1
+daily:todo> done 1
 ✓ Completed: Review PR
+
+daily:todo> notes
+Switched to notes mode
+
+daily:notes> ls
+No notes yet. Create one with: add
 ```
 
 ## Features
@@ -34,35 +40,41 @@ daily
 
 ## Commands
 
-### Todos
+### Mode Switching
 
 | Command | Description |
 |---------|-------------|
-| `list`, `ls` | List all todos |
+| `todo` | Switch to todo mode |
+| `notes`, `n` | Switch to notes mode |
+
+### Todo Mode
+
+| Command | Description |
+|---------|-------------|
+| `ls` | List all todos |
 | `add <text> [--due <date>]` | Add todo (date: `YYYY-MM-DD HH:mm`) |
-| `show <#>` | Show todo with notes |
+| `cat <#>` | Show todo with notes |
 | `edit <#>` | Edit todo's notes |
-| `done <#>` | Mark complete |
-| `undone <#>` | Mark incomplete |
+| `done <#>`, `toggle <#>` | Toggle completion |
 | `rm <#>` | Delete todo |
 | `mv <#> <#>` | Reorder (e.g., `mv 1 3`, `mv 2 last`) |
 
-### Notes
+### Notes Mode
 
 | Command | Description |
 |---------|-------------|
-| `n [label]` | Create note (opens in $EDITOR) |
-| `n ls` | List all notes |
-| `n show <#>` | Display note |
-| `n edit <#>` | Edit note |
-| `n rm <#>` | Delete note |
+| `add [label]` | Create note (opens in $EDITOR) |
+| `ls` | List all notes |
+| `cat <#\|search>` | Display note |
+| `edit <#\|search>` | Edit note |
+| `rm <#\|search>` | Delete note |
 
-### System
+### System (both modes)
 
 | Command | Description |
 |---------|-------------|
 | `info` | Storage location and sync status |
-| `help` | Show help |
+| `help` | Show help (context-aware per mode) |
 | `exit` | Quit |
 
 ## Storage
