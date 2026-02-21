@@ -1,9 +1,22 @@
 import { createInterface } from 'readline';
 import chalk from 'chalk';
 import { addTodo, listTodos, toggleTodo, deleteTodo, editTodo, showTodo, moveTodo } from './commands';
-import { getStorageLocation, isUsingICloud } from './storage';
+import { getStorageLocation, isUsingICloud, getDataDir, setActiveDataDir } from './storage';
+import { switchWorkspaceEncryption } from './encryption';
 import { editNote, listNotes, showNote, deleteNote, editExistingNote, editTemplate, listTemplates } from './notes';
 import { Mode } from './types';
+import { rmSync } from 'fs';
+import {
+  listWorkspaces,
+  loadRegistry,
+  saveRegistry,
+  createWorkspace,
+  workspaceExists,
+  setDefaultWorkspace,
+  getWorkspaceDir,
+  ensureWorkspaceDir,
+  validateWorkspaceName,
+} from './workspace';
 
 // Create horizontal separator line
 function separator(): string {
@@ -11,17 +24,19 @@ function separator(): string {
   return chalk.gray('─'.repeat(width));
 }
 
-export function startREPL(): void {
+export function startREPL(initialWorkspace: string): void {
   let currentMode: Mode = 'todo';
+  let currentWorkspace = initialWorkspace;
+  const root = getDataDir();
 
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: chalk.cyan(`daily:${currentMode}> `),
+    prompt: chalk.cyan(`daily:${currentWorkspace}:${currentMode}> `),
   });
 
   function updatePrompt(): void {
-    rl.setPrompt(chalk.cyan(`daily:${currentMode}> `));
+    rl.setPrompt(chalk.cyan(`daily:${currentWorkspace}:${currentMode}> `));
   }
 
   // Display welcome message
@@ -48,9 +63,24 @@ export function startREPL(): void {
     const command = parts[0].toLowerCase();
     const args = parts.slice(1);
 
+    // Workspace command is async — handle separately
+    if (command === 'workspace') {
+      handleWorkspaceCommand(args, root, currentWorkspace, (newWs) => {
+        currentWorkspace = newWs;
+        updatePrompt();
+      })
+        .then(() => { console.log(separator()); rl.prompt(); })
+        .catch(err => {
+          console.log(chalk.red('✗'), 'Error:', err instanceof Error ? err.message : 'Unknown error');
+          console.log(separator());
+          rl.prompt();
+        });
+      return;
+    }
+
     try {
       // Shared commands (work in both modes)
-      if (handleSharedCommand(command, args, rl, currentMode)) {
+      if (handleSharedCommand(command, args, rl, currentMode, currentWorkspace)) {
         // handled
       } else if (command === 'todo') {
         currentMode = 'todo';
@@ -87,14 +117,20 @@ export function startREPL(): void {
  * Handle shared commands that work in both modes.
  * Returns true if the command was handled.
  */
-function handleSharedCommand(command: string, _args: string[], rl: ReturnType<typeof createInterface>, currentMode: Mode): boolean {
+function handleSharedCommand(
+  command: string,
+  _args: string[],
+  rl: ReturnType<typeof createInterface>,
+  currentMode: Mode,
+  currentWorkspace: string,
+): boolean {
   switch (command) {
     case 'help':
       showHelp(currentMode);
       return true;
 
     case 'info':
-      showInfo();
+      showInfo(currentWorkspace);
       return true;
 
     case 'clear':
@@ -116,6 +152,118 @@ function handleSharedCommand(command: string, _args: string[], rl: ReturnType<ty
     default:
       return false;
   }
+}
+
+async function handleWorkspaceCommand(
+  args: string[],
+  root: string,
+  currentWorkspace: string,
+  setWorkspace: (name: string) => void,
+): Promise<void> {
+  const sub = args[0];
+
+  if (!sub || sub === 'list') {
+    const workspaces = listWorkspaces(root);
+    if (workspaces.length === 0) {
+      console.log(chalk.gray('No workspaces found.'));
+      return;
+    }
+    let defaultWs = '';
+    try {
+      defaultWs = loadRegistry(root).defaultWorkspace;
+    } catch { /* no registry */ }
+
+    console.log(chalk.bold('Workspaces:'));
+    for (const ws of workspaces) {
+      const isActive = ws.name === currentWorkspace;
+      const isDefault = ws.name === defaultWs;
+      const markers = [isActive ? chalk.green('*') : ' ', isDefault ? chalk.gray('(default)') : ''].filter(Boolean).join(' ');
+      console.log(`  ${chalk.cyan(ws.name)} ${markers}`);
+    }
+    return;
+  }
+
+  if (sub === 'new') {
+    const name = args[1];
+    if (!name) {
+      console.log(chalk.red('✗'), 'Usage: workspace new <name>');
+      return;
+    }
+    if (!validateWorkspaceName(name)) {
+      console.log(chalk.red('✗'), 'Invalid name. Use letters, numbers, _ or - (1-50 chars)');
+      return;
+    }
+    if (workspaceExists(root, name)) {
+      console.log(chalk.yellow('⚠'), `Workspace "${name}" already exists`);
+      return;
+    }
+    createWorkspace(root, name);
+    console.log(chalk.green('✓'), `Workspace "${name}" created. Use`, chalk.cyan(`workspace ${name}`), 'to switch.');
+    return;
+  }
+
+  if (sub === 'default') {
+    const name = args[1];
+    if (!name) {
+      console.log(chalk.red('✗'), 'Usage: workspace default <name>');
+      return;
+    }
+    if (!workspaceExists(root, name)) {
+      console.log(chalk.red('✗'), `Workspace "${name}" does not exist`);
+      return;
+    }
+    setDefaultWorkspace(root, name);
+    console.log(chalk.green('✓'), `Default workspace set to "${name}"`);
+    return;
+  }
+
+  if (sub === 'delete') {
+    const name = args[1];
+    if (!name) {
+      console.log(chalk.red('✗'), 'Usage: workspace delete <name>');
+      return;
+    }
+    if (name === currentWorkspace) {
+      console.log(chalk.red('✗'), 'Cannot delete the active workspace. Switch first.');
+      return;
+    }
+    if (!workspaceExists(root, name)) {
+      console.log(chalk.red('✗'), `Workspace "${name}" does not exist`);
+      return;
+    }
+    const wsDir = getWorkspaceDir(root, name);
+    rmSync(wsDir, { recursive: true, force: true });
+    const registry = loadRegistry(root);
+    registry.workspaces = registry.workspaces.filter(w => w.name !== name);
+    if (registry.defaultWorkspace === name) {
+      registry.defaultWorkspace = registry.workspaces[0]?.name ?? '';
+    }
+    saveRegistry(root, registry);
+    console.log(chalk.green('✓'), `Workspace "${name}" deleted`);
+    return;
+  }
+
+  // workspace <name> — switch
+  const name = sub;
+  if (!validateWorkspaceName(name)) {
+    console.log(chalk.red('✗'), `Unknown workspace command: ${name}`);
+    console.log(chalk.gray('Usage: workspace list | workspace new <name> | workspace <name> | workspace default <name> | workspace delete <name>'));
+    return;
+  }
+  if (!workspaceExists(root, name)) {
+    console.log(chalk.red('✗'), `Workspace "${name}" does not exist. Use`, chalk.cyan('workspace new'), 'to create it.');
+    return;
+  }
+
+  const wsDir = getWorkspaceDir(root, name);
+  ensureWorkspaceDir(wsDir);
+  setActiveDataDir(wsDir);
+  await switchWorkspaceEncryption(name, wsDir);
+  setWorkspace(name);
+
+  console.log(chalk.gray('Switched to workspace'), chalk.bold(name));
+  console.log();
+  listTodos();
 }
 
 function handleTodoCommand(command: string, args: string[]): void {
@@ -267,13 +415,14 @@ function parseCommand(input: string): string[] {
   return parts;
 }
 
-function showInfo(): void {
+function showInfo(currentWorkspace: string): void {
   const location = getStorageLocation();
   const usingICloud = isUsingICloud();
 
   console.log(chalk.bold('Storage Information:'));
-  console.log(chalk.gray('Location:'), chalk.cyan(location));
-  console.log(chalk.gray('Sync:    '), usingICloud ? chalk.green('✓ iCloud Drive (auto-sync enabled)') : chalk.yellow('⚠ Local only (iCloud not available)'));
+  console.log(chalk.gray('Workspace:'), chalk.cyan(currentWorkspace));
+  console.log(chalk.gray('Location: '), chalk.cyan(location));
+  console.log(chalk.gray('Sync:     '), usingICloud ? chalk.green('✓ iCloud Drive (auto-sync enabled)') : chalk.yellow('⚠ Local only (iCloud not available)'));
 
   if (usingICloud) {
     console.log(chalk.gray('Your todos are automatically synced across all your Macs via iCloud.'));
@@ -319,6 +468,13 @@ function showSharedHelp(): void {
   console.log(chalk.bold('Switch Mode:'));
   console.log(chalk.cyan('  todo') + '                   Switch to todo mode');
   console.log(chalk.cyan('  notes') + '                  Switch to notes mode');
+  console.log();
+  console.log(chalk.bold('Workspaces:'));
+  console.log(chalk.cyan('  workspace list') + '            List all workspaces');
+  console.log(chalk.cyan('  workspace new <name>') + '      Create a new workspace');
+  console.log(chalk.cyan('  workspace <name>') + '          Switch to workspace');
+  console.log(chalk.cyan('  workspace default <name>') + '  Set default workspace');
+  console.log(chalk.cyan('  workspace delete <name>') + '   Delete a workspace');
   console.log();
   console.log(chalk.bold('Templates:'));
   console.log(chalk.cyan('  templates') + '              List both note templates');

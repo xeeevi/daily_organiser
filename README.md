@@ -1,34 +1,31 @@
 # daily-organiser
 
-A fast, interactive CLI for managing todos and notes from your terminal.
+A fast, interactive CLI for managing todos and notes from your terminal — with workspaces to keep contexts separate.
 
 ```
-daily:todo> add "Review PR" --due "2025-10-15 14:30"
-✓ Added: Review PR (due Oct 15, 2:30 PM)
+daily:work:todo> add "Review PR" --due "2025-10-15 14:30"
+✓ Added: Review PR
 
-daily:todo> ls
+daily:work:todo> ls
   1. [ ] Review PR  ⏰ Oct 15, 2:30 PM
   2. [ ] Write docs
-  3. [✓] Fix login bug
 
-daily:todo> done 1
-✓ Completed: Review PR
+daily:work:todo> workspace personal
+Switched to workspace personal
 
-daily:todo> notes
-Switched to notes mode
-
-daily:notes> ls
-No notes yet. Create one with: add
+daily:personal:todo> ls
+No todos yet.
 ```
 
 ## Features
 
+- **Workspaces** — independent todo + notes contexts (work, personal, side projects)
 - **Interactive REPL** — stays running for continuous use
 - **Todo management** — add, complete, delete, reorder
 - **Due dates** — with overdue warnings
 - **Markdown notes** — attach to todos or standalone
-- **Note templates** — user-editable templates with `{{date}}`, `{{time}}`, `{{title}}` placeholders
-- **Encryption** — AES-256-GCM at rest; passphrase entered once per session
+- **Note templates** — user-editable with `{{date}}`, `{{time}}`, `{{title}}` placeholders
+- **Per-workspace encryption** — AES-256-GCM at rest; passphrase entered once per session
 - **iCloud sync** — across Macs (macOS only)
 
 ## Installation
@@ -42,22 +39,38 @@ daily
 
 ## First Run
 
-On first launch, you'll be prompted to set a passphrase. This encrypts all your data before it's written to disk (including iCloud).
+On first launch you'll be prompted to name your workspace:
 
 ```
-🔐 Setting up encryption for your data...
-⚠️  WARNING: If you forget your passphrase, your data cannot be recovered.
-
-Enter new passphrase:
-Confirm passphrase:
-✓ Encryption enabled. 0 file(s) encrypted.
+Welcome to Daily Organiser! Create your first workspace:
+Workspace name: personal
 ```
 
-On every subsequent launch, you'll see a single `Passphrase:` prompt. The key is held in memory for the session only — never written to disk.
+If you have existing data from a previous version, you'll be prompted to name it — your data migrates automatically, nothing is lost.
+
+If encryption is enabled, you'll be prompted for a passphrase once per session. The key is held in memory only — never written to disk.
 
 > **Important:** There is no passphrase recovery. If you lose it, your data is unrecoverable.
 
 ## Commands
+
+### Workspaces
+
+| Command | Description |
+|---------|-------------|
+| `workspace list` | List all workspaces; active marked `*`, default marked `(default)` |
+| `workspace new <name>` | Create a new workspace |
+| `workspace <name>` | Switch to a workspace |
+| `workspace default <name>` | Set the default workspace (opened on next launch) |
+| `workspace delete <name>` | Delete a workspace and all its data |
+
+Workspace names: letters, numbers, `-` and `_`, up to 50 characters.
+
+Open directly into a workspace from the shell:
+
+```bash
+daily --workspace work
+```
 
 ### Mode Switching
 
@@ -95,18 +108,18 @@ On every subsequent launch, you'll see a single `Passphrase:` prompt. The key is
 | Command | Description |
 |---------|-------------|
 | `templates` | List both note templates |
-| `info` | Storage location and sync status |
+| `info` | Show workspace, storage location, sync status |
 | `help` | Show help (context-aware per mode) |
 | `exit` | Quit |
 
 ## Note Templates
 
-New notes are created from editable templates stored in your data directory:
+New notes are created from editable templates stored per workspace:
 
 ```
-<data_dir>/templates/
-  note.md       — standalone notes (add command)
-  todo-note.md  — notes attached to todos (edit command)
+<data_dir>/workspaces/<name>/templates/
+  note.md       — standalone notes (add command in notes mode)
+  todo-note.md  — notes attached to todos (edit command in todo mode)
 ```
 
 Templates support three placeholders:
@@ -117,26 +130,31 @@ Templates support three placeholders:
 | `{{time}}` | Current time (`14:30`) |
 | `{{title}}` | Note label or todo text |
 
-Edit a template with `edit template` in the appropriate mode — notes mode edits the note template, todo mode edits the todo note template. Changes take effect immediately for all new notes.
+Edit a template with `edit template` in the appropriate mode. Changes take effect immediately for all new notes.
 
 ## Storage
 
-Your data is yours — no accounts, no third-party servers, no telemetry. Everything is stored locally and encrypted at rest using AES-256-GCM.
+No accounts, no servers, no telemetry. All data is stored locally, encrypted at rest.
 
-Data is kept in your iCloud directory if available, so it syncs automatically between your Macs:
+Data lives in your iCloud directory if available (syncs automatically between Macs), otherwise falls back to `~/.daily_organiser/`:
 
 ```
 ~/Library/Mobile Documents/com~apple~CloudDocs/daily_organiser/
-  todos.json          — encrypted todo store
-  notes/              — encrypted note files
-  templates/          — plain-text note templates (user-editable)
-  .salt               — key derivation salt (not secret)
-  .encrypted          — marker file (presence enables encryption)
+  workspaces.json             — workspace registry
+  workspaces/
+    <name>/
+      todos.json              — encrypted todo store
+      notes/                  — encrypted note files
+      templates/              — plain-text note templates
+      .salt                   — key derivation salt (not secret)
+      .encrypted              — presence enables encryption for this workspace
 ```
 
-Falls back to `~/.daily_organiser/` if iCloud isn't available.
+Each workspace has its own encryption passphrase and key. Temp files during note editing live in `$TMPDIR` and are deleted immediately after the editor closes.
 
-Temp files created during note editing live in `$TMPDIR` (never in iCloud) and are deleted immediately after the editor closes.
+## Migrating from v1.2.x
+
+Run `daily` — you'll be prompted to name your existing workspace. All data (`todos.json`, `notes/`, `templates/`, encryption files) is moved automatically via `renameSync`. No manual steps needed.
 
 ## Roadmap
 

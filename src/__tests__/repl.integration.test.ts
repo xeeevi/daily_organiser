@@ -49,6 +49,7 @@ const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => undefined 
 Object.defineProperty(process.stdout, 'columns', { value: 80, writable: true });
 
 import { startREPL } from '../repl';
+import { setActiveDataDir } from '../storage';
 
 let logOutput: string[];
 const originalLog = console.log;
@@ -60,6 +61,7 @@ function sendLine(input: string): void {
 
 beforeEach(() => {
   const storageDir = path.join(TEST_PARENT, '.daily_organiser');
+  setActiveDataDir(storageDir);
   if (fs.existsSync(storageDir)) {
     fs.rmSync(storageDir, { recursive: true });
   }
@@ -70,7 +72,7 @@ beforeEach(() => {
   };
   console.clear = jest.fn();
 
-  startREPL();
+  startREPL('test');
   // Clear the welcome message output
   logOutput = [];
 });

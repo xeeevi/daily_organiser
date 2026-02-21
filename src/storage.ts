@@ -5,56 +5,62 @@ import { TodoStore, Todo } from './types';
 import { isEncryptionEnabled, encrypt, decrypt, isEncryptedBuffer } from './encryption';
 
 // iCloud Drive path for automatic sync across Macs
-const ICLOUD_DIR = path.join(
-  os.homedir(),
-  'Library/Mobile Documents/com~apple~CloudDocs/daily_organiser'
-);
-
-// Fallback to local storage if iCloud is not available
-const LOCAL_DIR = path.join(os.homedir(), '.daily_organiser');
-
-// Determine which directory to use
-function getDataDir(): string {
-  const icloudParent = path.join(os.homedir(), 'Library/Mobile Documents/com~apple~CloudDocs');
-
-  // Check if iCloud Drive is available
-  if (fs.existsSync(icloudParent)) {
-    return ICLOUD_DIR;
-  }
-
-  return LOCAL_DIR;
+function iCloudRoot(): string {
+  return path.join(os.homedir(), 'Library/Mobile Documents/com~apple~CloudDocs');
 }
 
-const DATA_DIR = getDataDir();
-const DATA_FILE = path.join(DATA_DIR, 'todos.json');
-
-export function ensureDataDir(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+// Determine which root directory to use for the app
+export function getDataDir(): string {
+  const icloudParent = iCloudRoot();
+  if (fs.existsSync(icloudParent)) {
+    return path.join(icloudParent, 'daily_organiser');
   }
+  return path.join(os.homedir(), '.daily_organiser');
+}
+
+let activeDataDir = '';
+
+export function setActiveDataDir(dir: string): void {
+  activeDataDir = dir;
+}
+
+export function _resetStorageForTest(): void {
+  activeDataDir = '';
 }
 
 export function getStorageLocation(): string {
-  return DATA_DIR;
+  if (!activeDataDir) throw new Error('Storage not initialized. Call setActiveDataDir first.');
+  return activeDataDir;
+}
+
+function getDataFile(): string {
+  return path.join(getStorageLocation(), 'todos.json');
+}
+
+export function ensureDataDir(): void {
+  const dir = getStorageLocation();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
 export function isUsingICloud(): boolean {
-  return DATA_DIR === ICLOUD_DIR;
+  return activeDataDir.startsWith(iCloudRoot());
 }
 
 export function loadTodos(): Todo[] {
   ensureDataDir();
 
-  if (!fs.existsSync(DATA_FILE)) {
+  const dataFile = getDataFile();
+  if (!fs.existsSync(dataFile)) {
     return [];
   }
 
   try {
-    const raw = fs.readFileSync(DATA_FILE);
+    const raw = fs.readFileSync(dataFile);
     const data = isEncryptedBuffer(raw) ? decrypt(raw).toString('utf-8') : raw.toString('utf-8');
     const store: TodoStore = JSON.parse(data);
 
-    // Convert date strings back to Date objects
     return store.todos.map(todo => ({
       ...todo,
       createdAt: new Date(todo.createdAt),
@@ -74,8 +80,9 @@ export function saveTodos(todos: Todo[]): void {
 
   try {
     const json = JSON.stringify(store, null, 2);
-    const output = isEncryptionEnabled() ? encrypt(Buffer.from(json, 'utf-8')) : Buffer.from(json, 'utf-8');
-    fs.writeFileSync(DATA_FILE, output);
+    const dir = getStorageLocation();
+    const output = isEncryptionEnabled(dir) ? encrypt(Buffer.from(json, 'utf-8')) : Buffer.from(json, 'utf-8');
+    fs.writeFileSync(getDataFile(), output);
   } catch (error) {
     console.error('Error saving todos:', error);
     throw error;

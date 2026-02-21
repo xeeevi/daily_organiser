@@ -27,13 +27,14 @@ jest.mock('child_process', () => ({
 }));
 
 import { editNote, listNotes, showNote, deleteNote, getTemplate, editTemplate, listTemplates } from '../notes';
-import { getStorageLocation } from '../storage';
+import { getStorageLocation, setActiveDataDir } from '../storage';
 
 let logOutput: string[];
 const originalLog = console.log;
 
 beforeEach(() => {
   const storageDir = path.join(TEST_PARENT, '.daily_organiser');
+  setActiveDataDir(storageDir);
   if (fs.existsSync(storageDir)) {
     fs.rmSync(storageDir, { recursive: true });
   }

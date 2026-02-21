@@ -5,7 +5,10 @@ import { randomUUID } from 'crypto';
 import { parseDueDate, formatDueDate } from './dateParser';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
+import { isEncryptionEnabled, encrypt, decrypt, isEncryptedBuffer } from './encryption';
+import { getTemplate } from './notes';
 
 export function addTodo(text: string, dueDate?: string): void {
   const todos = loadTodos();
@@ -300,47 +303,78 @@ export function editTodo(indexOrId: string): void {
   const { todo, index } = result;
   const todos = loadTodos();
 
-  // Create note file path if it doesn't exist
+  // Assign note file path if not yet set
   if (!todo.noteFile) {
     ensureTodoNotesDir();
     todo.noteFile = join('notes', 'todos', `todo-${todo.id}.md`);
-    // Update the todo in the todos array
     todos[index].noteFile = todo.noteFile;
   }
 
   const noteFilePath = join(getStorageLocation(), todo.noteFile);
   const editor = getEditor();
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-  // Create initial template if file doesn't exist
-  if (!existsSync(noteFilePath)) {
-    const template = `# ${todo.text}
+  // Build initial template content when the note file doesn't exist yet
+  const isNew = !existsSync(noteFilePath);
+  const initialTemplate = isNew
+    ? getTemplate('todo-note', { title: todo.text, date: dateStr, time: timeStr })
+    : undefined;
 
-## Notes
+  if (isEncryptionEnabled(getStorageLocation())) {
+    const tempPath = join(tmpdir(), `daily_note_${randomUUID()}.md`);
+    try {
+      let content: string;
+      if (initialTemplate !== undefined) {
+        content = initialTemplate;
+      } else {
+        const raw = readFileSync(noteFilePath);
+        content = isEncryptedBuffer(raw) ? decrypt(raw).toString('utf-8') : raw.toString('utf-8');
+      }
+      writeFileSync(tempPath, content, 'utf-8');
 
-`;
-    writeFileSync(noteFilePath, template, 'utf-8');
-  }
+      const editorResult = spawnSync(editor, [tempPath], { stdio: 'inherit' });
 
-  // Spawn editor and wait for it to close
-  const editorResult = spawnSync(editor, [noteFilePath], {
-    stdio: 'inherit',
-  });
-
-  if (editorResult.status === 0) {
-    // Check if file has content (more than just the template)
-    const content = readFileSync(noteFilePath, 'utf-8').trim();
-    if (content.length > 0) {
-      saveTodos(todos);
-      console.log(chalk.green('✓'), 'Note saved for todo:', chalk.cyan(todo.text));
-    } else {
-      // Empty file, remove it and clear noteFile reference
-      unlinkSync(noteFilePath);
-      todos[index].noteFile = undefined;
-      saveTodos(todos);
-      console.log(chalk.gray('Note was empty, not saved'));
+      if (editorResult.status === 0) {
+        const edited = readFileSync(tempPath, 'utf-8');
+        if (edited.trim().length > 0) {
+          writeFileSync(noteFilePath, encrypt(Buffer.from(edited, 'utf-8')));
+          saveTodos(todos);
+          console.log(chalk.green('✓'), 'Note saved for todo:', chalk.cyan(todo.text));
+        } else {
+          if (existsSync(noteFilePath)) unlinkSync(noteFilePath);
+          todos[index].noteFile = undefined;
+          saveTodos(todos);
+          console.log(chalk.gray('Note was empty, not saved'));
+        }
+      } else {
+        console.log(chalk.red('✗'), 'Editor exited with error');
+      }
+    } finally {
+      if (existsSync(tempPath)) unlinkSync(tempPath);
     }
   } else {
-    console.log(chalk.red('✗'), 'Editor exited with error');
+    if (initialTemplate !== undefined) {
+      writeFileSync(noteFilePath, initialTemplate, 'utf-8');
+    }
+
+    const editorResult = spawnSync(editor, [noteFilePath], { stdio: 'inherit' });
+
+    if (editorResult.status === 0) {
+      const content = readFileSync(noteFilePath, 'utf-8').trim();
+      if (content.length > 0) {
+        saveTodos(todos);
+        console.log(chalk.green('✓'), 'Note saved for todo:', chalk.cyan(todo.text));
+      } else {
+        unlinkSync(noteFilePath);
+        todos[index].noteFile = undefined;
+        saveTodos(todos);
+        console.log(chalk.gray('Note was empty, not saved'));
+      }
+    } else {
+      console.log(chalk.red('✗'), 'Editor exited with error');
+    }
   }
 }
 

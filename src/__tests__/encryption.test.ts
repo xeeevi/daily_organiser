@@ -22,16 +22,17 @@ import {
   decryptFile,
   decryptToTemp,
   _initSessionForTest,
-  _clearSessionForTest,
+  _resetEncryptionForTest,
 } from '../encryption';
 
 beforeEach(() => {
-  initEncryption(TEST_DIR);
+  _resetEncryptionForTest();
+  initEncryption('test', TEST_DIR);
   _initSessionForTest('test-passphrase');
 });
 
 afterEach(() => {
-  _clearSessionForTest();
+  _resetEncryptionForTest();
 });
 
 describe('isEncryptedBuffer', () => {
@@ -104,7 +105,7 @@ describe('decrypt with wrong key', () => {
 
 describe('encrypt / decrypt require unlocked session', () => {
   it('throws when session key is cleared', () => {
-    _clearSessionForTest();
+    _resetEncryptionForTest();
     expect(() => encrypt(Buffer.from('data'))).toThrow('Encryption session not unlocked');
     expect(() => decrypt(Buffer.from('x'.repeat(50)))).toThrow('Encryption session not unlocked');
   });
@@ -180,14 +181,14 @@ describe('isEncryptionEnabled', () => {
   it('returns false when .encrypted marker is absent', () => {
     const markerPath = path.join(TEST_DIR, '.encrypted');
     if (fs.existsSync(markerPath)) fs.unlinkSync(markerPath);
-    expect(isEncryptionEnabled()).toBe(false);
+    expect(isEncryptionEnabled(TEST_DIR)).toBe(false);
   });
 
   it('returns true when .encrypted marker is present', () => {
     const markerPath = path.join(TEST_DIR, '.encrypted');
     fs.writeFileSync(markerPath, '', 'utf-8');
     try {
-      expect(isEncryptionEnabled()).toBe(true);
+      expect(isEncryptionEnabled(TEST_DIR)).toBe(true);
     } finally {
       fs.unlinkSync(markerPath);
     }

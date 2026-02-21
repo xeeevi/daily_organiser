@@ -19,12 +19,16 @@ describe('Storage', () => {
 
   beforeAll(() => {
     storage = require('../storage');
+    const testParentDir = path.join(os.tmpdir(), '.daily_organiser_test_parent');
+    const testDir = path.join(testParentDir, '.daily_organiser');
+    storage.setActiveDataDir(testDir);
   });
 
   beforeEach(() => {
     // Clean up any existing test data
     const testParentDir = path.join(os.tmpdir(), '.daily_organiser_test_parent');
     const testDir = path.join(testParentDir, '.daily_organiser');
+    storage.setActiveDataDir(testDir);
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true });
     }

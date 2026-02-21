@@ -7,8 +7,8 @@ import chalk from 'chalk';
 import { getStorageLocation } from './storage';
 import { isEncryptionEnabled, encrypt, decrypt, isEncryptedBuffer } from './encryption';
 
-const NOTES_DIR = path.join(getStorageLocation(), 'notes');
-const TEMPLATES_DIR = path.join(getStorageLocation(), 'templates');
+function notesDir(): string { return path.join(getStorageLocation(), 'notes'); }
+function templatesDir(): string { return path.join(getStorageLocation(), 'templates'); }
 
 const DEFAULT_NOTE_TEMPLATE = `# Meeting Notes - {{date}} {{time}}
 
@@ -35,20 +35,20 @@ const DEFAULT_TODO_NOTE_TEMPLATE = `# {{title}}
 `;
 
 export function ensureNotesDir(): void {
-  if (!fs.existsSync(NOTES_DIR)) {
-    fs.mkdirSync(NOTES_DIR, { recursive: true });
+  if (!fs.existsSync(notesDir())) {
+    fs.mkdirSync(notesDir(), { recursive: true });
   }
 }
 
 function ensureTemplateDir(): void {
-  if (!fs.existsSync(TEMPLATES_DIR)) {
-    fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
+  if (!fs.existsSync(templatesDir())) {
+    fs.mkdirSync(templatesDir(), { recursive: true });
   }
-  const notePath = path.join(TEMPLATES_DIR, 'note.md');
+  const notePath = path.join(templatesDir(), 'note.md');
   if (!fs.existsSync(notePath)) {
     fs.writeFileSync(notePath, DEFAULT_NOTE_TEMPLATE, 'utf-8');
   }
-  const todoNotePath = path.join(TEMPLATES_DIR, 'todo-note.md');
+  const todoNotePath = path.join(templatesDir(), 'todo-note.md');
   if (!fs.existsSync(todoNotePath)) {
     fs.writeFileSync(todoNotePath, DEFAULT_TODO_NOTE_TEMPLATE, 'utf-8');
   }
@@ -64,7 +64,7 @@ function substituteVars(template: string, vars: { title: string; date: string; t
 export function getTemplate(type: 'note' | 'todo-note', vars: { title: string; date: string; time: string }): string {
   ensureTemplateDir();
   const filename = type === 'note' ? 'note.md' : 'todo-note.md';
-  const templatePath = path.join(TEMPLATES_DIR, filename);
+  const templatePath = path.join(templatesDir(), filename);
   const raw = fs.readFileSync(templatePath, 'utf-8');
   return substituteVars(raw, vars);
 }
@@ -72,7 +72,7 @@ export function getTemplate(type: 'note' | 'todo-note', vars: { title: string; d
 export function editTemplate(type: 'note' | 'todo-note'): void {
   ensureTemplateDir();
   const filename = type === 'note' ? 'note.md' : 'todo-note.md';
-  const templatePath = path.join(TEMPLATES_DIR, filename);
+  const templatePath = path.join(templatesDir(), filename);
   const editor = getEditor();
   const result = spawnSync(editor, [templatePath], { stdio: 'inherit' });
   if (result.status === 0) {
@@ -86,7 +86,7 @@ export function listTemplates(): void {
   ensureTemplateDir();
   console.log(chalk.bold('Note Templates:'));
   for (const name of ['note.md', 'todo-note.md']) {
-    const p = path.join(TEMPLATES_DIR, name);
+    const p = path.join(templatesDir(), name);
     const firstLine = fs.readFileSync(p, 'utf-8').split('\n')[0];
     console.log(chalk.cyan(`  ${name}`) + chalk.gray(` — ${firstLine}`));
   }
@@ -99,7 +99,7 @@ export function listTemplates(): void {
 function getNoteFilePath(dateStr: string, timeStr: string, label?: string): string {
   ensureNotesDir();
   const filename = label ? `${dateStr}-${timeStr}-${label}.md` : `${dateStr}-${timeStr}.md`;
-  return path.join(NOTES_DIR, filename);
+  return path.join(notesDir(), filename);
 }
 
 /**
@@ -152,7 +152,7 @@ function getEditor(): string {
 function openNoteInEditor(filePath: string, initialContent?: string): boolean {
   const editor = getEditor();
 
-  if (isEncryptionEnabled()) {
+  if (isEncryptionEnabled(getStorageLocation())) {
     const tempPath = path.join(os.tmpdir(), `daily_note_${randomUUID()}.md`);
     try {
       let content: string;
@@ -229,7 +229,7 @@ export function editNote(dateOrLabel?: string): void {
 export function listNotes(): void {
   ensureNotesDir();
 
-  const files = fs.readdirSync(NOTES_DIR)
+  const files = fs.readdirSync(notesDir())
     .filter(f => f.endsWith('.md'))
     .sort()
     .reverse();
@@ -241,7 +241,7 @@ export function listNotes(): void {
 
   console.log(chalk.bold('Meeting Notes:'));
   files.forEach((file, index) => {
-    const filePath = path.join(NOTES_DIR, file);
+    const filePath = path.join(notesDir(), file);
     const stats = fs.statSync(filePath);
     const modified = stats.mtime.toLocaleDateString();
     console.log(chalk.gray(`${index + 1}.`) + ' ' + chalk.cyan(file) + chalk.gray(` (modified: ${modified})`));
@@ -254,19 +254,19 @@ export function listNotes(): void {
 function findNoteFile(indexOrSearch: string): string | null {
   ensureNotesDir();
 
-  const files = fs.readdirSync(NOTES_DIR)
+  const files = fs.readdirSync(notesDir())
     .filter(f => f.endsWith('.md'))
     .sort()
     .reverse();
 
   const index = parseInt(indexOrSearch) - 1;
   if (!isNaN(index) && index >= 0 && index < files.length) {
-    return path.join(NOTES_DIR, files[index]);
+    return path.join(notesDir(), files[index]);
   }
 
   const matchingFile = files.find(f => f.includes(indexOrSearch));
   if (matchingFile) {
-    return path.join(NOTES_DIR, matchingFile);
+    return path.join(notesDir(), matchingFile);
   }
 
   return null;

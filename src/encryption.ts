@@ -11,27 +11,27 @@ const TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 const SALT_LENGTH = 32;
 
-let sessionKey: Buffer | null = null;
-let dataDir: string = '';
+const sessionKeys = new Map<string, Buffer>();
+let activeWorkspaceName = '';
 
-export function initEncryption(dir: string): void {
-  dataDir = dir;
+export function initEncryption(workspaceName: string, _dir: string): void {
+  activeWorkspaceName = workspaceName;
 }
 
-function encryptedMarkerPath(): string {
-  return path.join(dataDir, '.encrypted');
+function encryptedMarkerPath(dir: string): string {
+  return path.join(dir, '.encrypted');
 }
 
-function saltPath(): string {
-  return path.join(dataDir, '.salt');
+function saltPath(dir: string): string {
+  return path.join(dir, '.salt');
 }
 
-export function isEncryptionEnabled(): boolean {
-  return dataDir !== '' && fs.existsSync(encryptedMarkerPath());
+export function isEncryptionEnabled(dir: string): boolean {
+  return dir !== '' && fs.existsSync(encryptedMarkerPath(dir));
 }
 
-function getOrCreateSalt(): Buffer {
-  const p = saltPath();
+function getOrCreateSalt(dir: string): Buffer {
+  const p = saltPath(dir);
   if (fs.existsSync(p)) {
     return Buffer.from(fs.readFileSync(p, 'utf-8').trim(), 'hex');
   }
@@ -45,16 +45,18 @@ function deriveKey(passphrase: string, salt: Buffer): Buffer {
 }
 
 export function encrypt(plaintext: Buffer): Buffer {
-  if (!sessionKey) throw new Error('Encryption session not unlocked');
+  const key = sessionKeys.get(activeWorkspaceName);
+  if (!key) throw new Error('Encryption session not unlocked');
   const nonce = crypto.randomBytes(NONCE_LENGTH);
-  const cipher = crypto.createCipheriv('aes-256-gcm', sessionKey, nonce);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
   const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const tag = cipher.getAuthTag();
   return Buffer.concat([MAGIC, nonce, tag, encrypted]);
 }
 
 export function decrypt(ciphertext: Buffer): Buffer {
-  if (!sessionKey) throw new Error('Encryption session not unlocked');
+  const key = sessionKeys.get(activeWorkspaceName);
+  if (!key) throw new Error('Encryption session not unlocked');
   if (ciphertext.length < MAGIC_LENGTH + NONCE_LENGTH + TAG_LENGTH) {
     throw new Error('Invalid encrypted data: too short');
   }
@@ -65,7 +67,7 @@ export function decrypt(ciphertext: Buffer): Buffer {
   const nonce = ciphertext.subarray(MAGIC_LENGTH, MAGIC_LENGTH + NONCE_LENGTH);
   const tag = ciphertext.subarray(MAGIC_LENGTH + NONCE_LENGTH, MAGIC_LENGTH + NONCE_LENGTH + TAG_LENGTH);
   const encrypted = ciphertext.subarray(MAGIC_LENGTH + NONCE_LENGTH + TAG_LENGTH);
-  const decipher = crypto.createDecipheriv('aes-256-gcm', sessionKey, nonce);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
   decipher.setAuthTag(tag);
   try {
     return Buffer.concat([decipher.update(encrypted), decipher.final()]);
@@ -128,15 +130,15 @@ function promptPassphrase(prompt: string): Promise<string> {
   });
 }
 
-function collectDataFiles(): string[] {
+function collectDataFiles(dir: string): string[] {
   const files: string[] = [];
-  const todosPath = path.join(dataDir, 'todos.json');
+  const todosPath = path.join(dir, 'todos.json');
   if (fs.existsSync(todosPath)) files.push(todosPath);
 
-  function walkDir(dir: string): void {
-    if (!fs.existsSync(dir)) return;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const fullPath = path.join(dir, entry.name);
+  function walkDir(d: string): void {
+    if (!fs.existsSync(d)) return;
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const fullPath = path.join(d, entry.name);
       if (entry.isDirectory()) {
         walkDir(fullPath);
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
@@ -145,13 +147,53 @@ function collectDataFiles(): string[] {
     }
   }
 
-  walkDir(path.join(dataDir, 'notes'));
+  walkDir(path.join(dir, 'notes'));
   return files;
 }
 
-export async function setupEncryption(): Promise<void> {
-  if (isEncryptionEnabled()) {
-    await unlockSession();
+async function unlockSession(workspaceName: string, dir: string): Promise<void> {
+  const p = saltPath(dir);
+  if (!fs.existsSync(p)) {
+    console.error('Salt file missing. Cannot unlock encrypted data.');
+    process.exit(1);
+  }
+
+  const salt = Buffer.from(fs.readFileSync(p, 'utf-8').trim(), 'hex');
+  const passphrase = await promptPassphrase('Passphrase: ');
+  const key = deriveKey(passphrase, salt);
+
+  const todosPath = path.join(dir, 'todos.json');
+  if (fs.existsSync(todosPath)) {
+    const raw = fs.readFileSync(todosPath);
+    if (isEncryptedBuffer(raw)) {
+      sessionKeys.set(workspaceName, key);
+      try {
+        // Temporarily set active workspace to verify key
+        const prev = activeWorkspaceName;
+        activeWorkspaceName = workspaceName;
+        try {
+          decrypt(raw);
+        } catch {
+          sessionKeys.delete(workspaceName);
+          activeWorkspaceName = prev;
+          console.error('\n✗ Wrong passphrase');
+          process.exit(1);
+        }
+        activeWorkspaceName = prev;
+      } catch {
+        // already handled above
+      }
+    }
+  }
+
+  sessionKeys.set(workspaceName, key);
+  console.log('');
+}
+
+export async function setupEncryption(workspaceName: string, dir: string): Promise<void> {
+  if (isEncryptionEnabled(dir)) {
+    await unlockSession(workspaceName, dir);
+    activeWorkspaceName = workspaceName;
     return;
   }
 
@@ -170,10 +212,14 @@ export async function setupEncryption(): Promise<void> {
     process.exit(1);
   }
 
-  const salt = getOrCreateSalt();
-  sessionKey = deriveKey(passphrase, salt);
+  const salt = getOrCreateSalt(dir);
+  const key = deriveKey(passphrase, salt);
+  sessionKeys.set(workspaceName, key);
 
-  const files = collectDataFiles();
+  const prev = activeWorkspaceName;
+  activeWorkspaceName = workspaceName;
+
+  const files = collectDataFiles(dir);
   const backups = new Map<string, Buffer>();
 
   try {
@@ -181,52 +227,45 @@ export async function setupEncryption(): Promise<void> {
       backups.set(filePath, fs.readFileSync(filePath));
       encryptFile(filePath);
     }
-    fs.writeFileSync(encryptedMarkerPath(), '', 'utf-8');
+    fs.writeFileSync(encryptedMarkerPath(dir), '', 'utf-8');
     console.log(`✓ Encryption enabled. ${files.length} file(s) encrypted.\n`);
   } catch (error) {
     for (const [filePath, original] of backups) {
       try { fs.writeFileSync(filePath, original); } catch { /* ignore */ }
     }
-    sessionKey = null;
+    sessionKeys.delete(workspaceName);
+    activeWorkspaceName = prev;
     throw error;
   }
+
+  activeWorkspaceName = workspaceName;
+}
+
+export async function switchWorkspaceEncryption(workspaceName: string, dir: string): Promise<void> {
+  if (sessionKeys.has(workspaceName)) {
+    activeWorkspaceName = workspaceName;
+    return;
+  }
+
+  if (isEncryptionEnabled(dir)) {
+    await unlockSession(workspaceName, dir);
+  }
+
+  activeWorkspaceName = workspaceName;
 }
 
 /** For testing only: set session key directly from a passphrase. */
-export function _initSessionForTest(passphrase: string): void {
-  sessionKey = crypto.scryptSync(passphrase, Buffer.alloc(32, 0), KEY_LENGTH) as Buffer;
+export function _initSessionForTest(passphrase: string, workspaceName = 'test'): void {
+  sessionKeys.set(workspaceName, crypto.scryptSync(passphrase, Buffer.alloc(32, 0), KEY_LENGTH) as Buffer);
+  activeWorkspaceName = workspaceName;
 }
 
+export function _resetEncryptionForTest(): void {
+  sessionKeys.clear();
+  activeWorkspaceName = '';
+}
+
+/** @deprecated Use _resetEncryptionForTest */
 export function _clearSessionForTest(): void {
-  sessionKey = null;
-}
-
-export async function unlockSession(): Promise<void> {
-  const p = saltPath();
-  if (!fs.existsSync(p)) {
-    console.error('Salt file missing. Cannot unlock encrypted data.');
-    process.exit(1);
-  }
-
-  const salt = Buffer.from(fs.readFileSync(p, 'utf-8').trim(), 'hex');
-  const passphrase = await promptPassphrase('Passphrase: ');
-  const key = deriveKey(passphrase, salt);
-
-  const todosPath = path.join(dataDir, 'todos.json');
-  if (fs.existsSync(todosPath)) {
-    const raw = fs.readFileSync(todosPath);
-    if (isEncryptedBuffer(raw)) {
-      sessionKey = key;
-      try {
-        decrypt(raw);
-      } catch {
-        sessionKey = null;
-        console.error('\n✗ Wrong passphrase');
-        process.exit(1);
-      }
-    }
-  }
-
-  sessionKey = key;
-  console.log('');
+  _resetEncryptionForTest();
 }

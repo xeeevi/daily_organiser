@@ -13,3 +13,13 @@ export interface TodoStore {
 }
 
 export type Mode = 'todo' | 'notes';
+
+export interface Workspace {
+  name: string;
+  createdAt: string;
+}
+
+export interface WorkspaceRegistry {
+  workspaces: Workspace[];
+  defaultWorkspace: string;
+}

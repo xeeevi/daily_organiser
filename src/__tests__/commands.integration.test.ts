@@ -32,14 +32,15 @@ jest.mock('child_process', () => ({
 }));
 
 import { addTodo, listTodos, toggleTodo, deleteTodo, moveTodo, showTodo, editTodo } from '../commands';
-import { loadTodos, saveTodos } from '../storage';
+import { loadTodos, saveTodos, setActiveDataDir } from '../storage';
 
 let logOutput: string[];
 const originalLog = console.log;
 
 beforeEach(() => {
-  // Clean test storage
+  // Set and clean test storage
   const storageDir = path.join(TEST_PARENT, '.daily_organiser');
+  setActiveDataDir(storageDir);
   if (fs.existsSync(storageDir)) {
     fs.rmSync(storageDir, { recursive: true });
   }
