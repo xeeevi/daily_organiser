@@ -26,7 +26,7 @@ jest.mock('child_process', () => ({
   spawnSync: jest.fn(() => ({ status: 0 })),
 }));
 
-import { editNote, listNotes, showNote, deleteNote } from '../notes';
+import { editNote, listNotes, showNote, deleteNote, getTemplate, editTemplate, listTemplates } from '../notes';
 import { getStorageLocation } from '../storage';
 
 let logOutput: string[];
@@ -148,5 +148,129 @@ describe('deleteNote', () => {
   it('should show error for non-existent note', () => {
     deleteNote('99');
     expect(logOutput.some(l => l.includes('Note not found'))).toBe(true);
+  });
+});
+
+describe('templates', () => {
+  describe('getTemplate', () => {
+    it('substitutes {{date}} in note template', () => {
+      const result = getTemplate('note', { title: '', date: '2026-02-21', time: '14:30' });
+      expect(result).toContain('2026-02-21');
+    });
+
+    it('substitutes {{time}} in note template', () => {
+      const result = getTemplate('note', { title: '', date: '2026-02-21', time: '14:30' });
+      expect(result).toContain('14:30');
+    });
+
+    it('substitutes {{title}} in todo-note template', () => {
+      const result = getTemplate('todo-note', { title: 'My todo task', date: '2026-02-21', time: '09:00' });
+      expect(result).toContain('My todo task');
+    });
+
+    it('default note template contains expected sections', () => {
+      const result = getTemplate('note', { title: '', date: '2026-02-21', time: '14:30' });
+      expect(result).toContain('Meeting Notes');
+      expect(result).toContain('Attendees');
+      expect(result).toContain('Agenda');
+      expect(result).toContain('Action Items');
+    });
+
+    it('default todo-note template contains Notes section', () => {
+      const result = getTemplate('todo-note', { title: 'Fix bug', date: '2026-02-21', time: '10:00' });
+      expect(result).toContain('Fix bug');
+      expect(result).toContain('Notes');
+    });
+
+    it('creates template directory and default files on first use', () => {
+      const templatesDir = path.join(getStorageLocation(), 'templates');
+      expect(fs.existsSync(templatesDir)).toBe(false); // not yet created
+
+      getTemplate('note', { title: '', date: '2026-02-21', time: '14:30' });
+
+      expect(fs.existsSync(templatesDir)).toBe(true);
+      expect(fs.existsSync(path.join(templatesDir, 'note.md'))).toBe(true);
+      expect(fs.existsSync(path.join(templatesDir, 'todo-note.md'))).toBe(true);
+    });
+
+    it('uses custom template content after user edits it', () => {
+      const templatesDir = path.join(getStorageLocation(), 'templates');
+      fs.mkdirSync(templatesDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(templatesDir, 'note.md'),
+        '# Custom {{date}}\n\nMy custom section\n',
+        'utf-8'
+      );
+      const result = getTemplate('note', { title: '', date: '2026-02-21', time: '14:30' });
+      expect(result).toContain('Custom 2026-02-21');
+      expect(result).toContain('My custom section');
+      expect(result).not.toContain('Attendees');
+    });
+  });
+
+  describe('editNote uses template', () => {
+    it('creates note file with today\'s date from template', () => {
+      editNote();
+
+      const notesDir = path.join(getStorageLocation(), 'notes');
+      const files = fs.readdirSync(notesDir).filter(f => f.endsWith('.md'));
+      expect(files).toHaveLength(1);
+
+      const content = fs.readFileSync(path.join(notesDir, files[0]), 'utf-8');
+      // Template substitutes {{date}} — should contain current year at minimum
+      const currentYear = new Date().getFullYear().toString();
+      expect(content).toContain(currentYear);
+    });
+
+    it('does not contain unsubstituted placeholders', () => {
+      editNote('my-label');
+
+      const notesDir = path.join(getStorageLocation(), 'notes');
+      const files = fs.readdirSync(notesDir).filter(f => f.endsWith('.md'));
+      const content = fs.readFileSync(path.join(notesDir, files[0]), 'utf-8');
+
+      expect(content).not.toContain('{{date}}');
+      expect(content).not.toContain('{{time}}');
+      expect(content).not.toContain('{{title}}');
+    });
+  });
+
+  describe('listTemplates', () => {
+    it('lists both template files', () => {
+      // Trigger creation
+      getTemplate('note', { title: '', date: '2026-02-21', time: '14:30' });
+      logOutput = [];
+
+      listTemplates();
+      expect(logOutput.some(l => l.includes('note.md'))).toBe(true);
+      expect(logOutput.some(l => l.includes('todo-note.md'))).toBe(true);
+    });
+  });
+
+  describe('editTemplate', () => {
+    it('opens note.md template in editor', () => {
+      const { spawnSync } = require('child_process');
+      // Trigger template creation first
+      getTemplate('note', { title: '', date: '2026-02-21', time: '14:30' });
+      (spawnSync as jest.Mock).mockClear();
+
+      editTemplate('note');
+
+      const calls = (spawnSync as jest.Mock).mock.calls;
+      expect(calls.length).toBe(1);
+      expect(calls[0][1][0]).toContain('note.md');
+    });
+
+    it('opens todo-note.md template in editor', () => {
+      const { spawnSync } = require('child_process');
+      getTemplate('todo-note', { title: '', date: '2026-02-21', time: '14:30' });
+      (spawnSync as jest.Mock).mockClear();
+
+      editTemplate('todo-note');
+
+      const calls = (spawnSync as jest.Mock).mock.calls;
+      expect(calls.length).toBe(1);
+      expect(calls[0][1][0]).toContain('todo-note.md');
+    });
   });
 });

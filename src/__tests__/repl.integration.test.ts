@@ -185,3 +185,47 @@ describe('error handling', () => {
     expect(logOutput.every(l => !l.includes('Unknown command'))).toBe(true);
   });
 });
+
+describe('template commands', () => {
+  it('should list templates with "templates" command (shared)', () => {
+    sendLine('templates');
+    expect(logOutput.some(l => l.includes('note.md'))).toBe(true);
+    expect(logOutput.some(l => l.includes('todo-note.md'))).toBe(true);
+  });
+
+  it('should open note template editor with "edit template" in notes mode', () => {
+    sendLine('notes');
+    logOutput = [];
+    const { spawnSync } = require('child_process');
+    (spawnSync as jest.Mock).mockClear();
+
+    sendLine('edit template');
+    const calls = (spawnSync as jest.Mock).mock.calls;
+    expect(calls.some((c: any[]) => c[1][0].includes('note.md'))).toBe(true);
+  });
+
+  it('should open todo note template editor with "edit template" in todo mode', () => {
+    sendLine('todo');
+    logOutput = [];
+    const { spawnSync } = require('child_process');
+    (spawnSync as jest.Mock).mockClear();
+
+    sendLine('edit template');
+    const calls = (spawnSync as jest.Mock).mock.calls;
+    expect(calls.some((c: any[]) => c[1][0].includes('todo-note.md'))).toBe(true);
+  });
+
+  it('should show "edit template" in notes help', () => {
+    sendLine('notes');
+    logOutput = [];
+    sendLine('help');
+    expect(logOutput.some(l => l.includes('edit template'))).toBe(true);
+  });
+
+  it('should show "edit template" in todo help', () => {
+    sendLine('todo');
+    logOutput = [];
+    sendLine('help');
+    expect(logOutput.some(l => l.includes('edit template'))).toBe(true);
+  });
+});

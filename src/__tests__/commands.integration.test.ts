@@ -31,7 +31,7 @@ jest.mock('child_process', () => ({
   spawnSync: jest.fn(() => ({ status: 0 })),
 }));
 
-import { addTodo, listTodos, toggleTodo, deleteTodo, moveTodo, showTodo } from '../commands';
+import { addTodo, listTodos, toggleTodo, deleteTodo, moveTodo, showTodo, editTodo } from '../commands';
 import { loadTodos, saveTodos } from '../storage';
 
 let logOutput: string[];
@@ -234,6 +234,43 @@ describe('showTodo', () => {
 
   it('should show error for non-existent todo', () => {
     showTodo('99');
+    expect(logOutput.some(l => l.includes('Todo not found'))).toBe(true);
+  });
+});
+
+describe('editTodo — template', () => {
+  it('creates note file with todo text substituted via template', () => {
+    addTodo('Fix the login bug');
+    editTodo('1');
+
+    const todos = loadTodos();
+    expect(todos[0].noteFile).toBeDefined();
+
+    const noteFilePath = require('path').join(
+      require('../storage').getStorageLocation(),
+      todos[0].noteFile!
+    );
+    const content = require('fs').readFileSync(noteFilePath, 'utf-8');
+    expect(content).toContain('Fix the login bug');
+  });
+
+  it('does not contain unsubstituted placeholders in created note', () => {
+    addTodo('Write tests');
+    editTodo('1');
+
+    const todos = loadTodos();
+    const noteFilePath = require('path').join(
+      require('../storage').getStorageLocation(),
+      todos[0].noteFile!
+    );
+    const content = require('fs').readFileSync(noteFilePath, 'utf-8');
+    expect(content).not.toContain('{{title}}');
+    expect(content).not.toContain('{{date}}');
+    expect(content).not.toContain('{{time}}');
+  });
+
+  it('shows error for non-existent todo', () => {
+    editTodo('99');
     expect(logOutput.some(l => l.includes('Todo not found'))).toBe(true);
   });
 });

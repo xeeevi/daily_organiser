@@ -1,15 +1,96 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { spawnSync } from 'child_process';
+import { randomUUID } from 'crypto';
 import chalk from 'chalk';
 import { getStorageLocation } from './storage';
+import { isEncryptionEnabled, encrypt, decrypt, isEncryptedBuffer } from './encryption';
 
 const NOTES_DIR = path.join(getStorageLocation(), 'notes');
+const TEMPLATES_DIR = path.join(getStorageLocation(), 'templates');
+
+const DEFAULT_NOTE_TEMPLATE = `# Meeting Notes - {{date}} {{time}}
+
+## Attendees
+-
+
+## Agenda
+-
+
+## Discussion
+-
+
+## Action Items
+- [ ]
+
+## Next Steps
+-
+`;
+
+const DEFAULT_TODO_NOTE_TEMPLATE = `# {{title}}
+
+## Notes
+
+`;
 
 export function ensureNotesDir(): void {
   if (!fs.existsSync(NOTES_DIR)) {
     fs.mkdirSync(NOTES_DIR, { recursive: true });
   }
+}
+
+function ensureTemplateDir(): void {
+  if (!fs.existsSync(TEMPLATES_DIR)) {
+    fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
+  }
+  const notePath = path.join(TEMPLATES_DIR, 'note.md');
+  if (!fs.existsSync(notePath)) {
+    fs.writeFileSync(notePath, DEFAULT_NOTE_TEMPLATE, 'utf-8');
+  }
+  const todoNotePath = path.join(TEMPLATES_DIR, 'todo-note.md');
+  if (!fs.existsSync(todoNotePath)) {
+    fs.writeFileSync(todoNotePath, DEFAULT_TODO_NOTE_TEMPLATE, 'utf-8');
+  }
+}
+
+function substituteVars(template: string, vars: { title: string; date: string; time: string }): string {
+  return template
+    .replace(/\{\{title\}\}/g, vars.title)
+    .replace(/\{\{date\}\}/g, vars.date)
+    .replace(/\{\{time\}\}/g, vars.time);
+}
+
+export function getTemplate(type: 'note' | 'todo-note', vars: { title: string; date: string; time: string }): string {
+  ensureTemplateDir();
+  const filename = type === 'note' ? 'note.md' : 'todo-note.md';
+  const templatePath = path.join(TEMPLATES_DIR, filename);
+  const raw = fs.readFileSync(templatePath, 'utf-8');
+  return substituteVars(raw, vars);
+}
+
+export function editTemplate(type: 'note' | 'todo-note'): void {
+  ensureTemplateDir();
+  const filename = type === 'note' ? 'note.md' : 'todo-note.md';
+  const templatePath = path.join(TEMPLATES_DIR, filename);
+  const editor = getEditor();
+  const result = spawnSync(editor, [templatePath], { stdio: 'inherit' });
+  if (result.status === 0) {
+    console.log(chalk.green('✓'), 'Template saved:', chalk.cyan(filename));
+  } else {
+    console.log(chalk.red('✗'), 'Editor exited with error');
+  }
+}
+
+export function listTemplates(): void {
+  ensureTemplateDir();
+  console.log(chalk.bold('Note Templates:'));
+  for (const name of ['note.md', 'todo-note.md']) {
+    const p = path.join(TEMPLATES_DIR, name);
+    const firstLine = fs.readFileSync(p, 'utf-8').split('\n')[0];
+    console.log(chalk.cyan(`  ${name}`) + chalk.gray(` — ${firstLine}`));
+  }
+  console.log(chalk.gray('\nEdit with:'), chalk.cyan('template note'), chalk.gray('or'), chalk.cyan('template todo'));
 }
 
 /**
@@ -32,7 +113,7 @@ function formatDate(date: Date): string {
 }
 
 /**
- * Format time as HHMM
+ * Format time as HHMM (for filename)
  */
 function formatTime(date: Date): string {
   const hours = String(date.getHours()).padStart(2, '0');
@@ -41,26 +122,68 @@ function formatTime(date: Date): string {
 }
 
 /**
+ * Format time as HH:MM (for display/templates)
+ */
+function formatDisplayTime(date: Date): string {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
+/**
  * Get the editor command to use
  */
 function getEditor(): string {
-  // Check environment variable first
   if (process.env.EDITOR) {
     return process.env.EDITOR;
   }
-
-  // Check if vim is available
   const vimCheck = spawnSync('which', ['vim'], { encoding: 'utf-8' });
   if (vimCheck.status === 0) {
     return 'vim';
   }
-
-  // Fall back to nano
   return 'nano';
 }
 
 /**
- * Open a note in the user's editor
+ * Open a note in the editor, handling encryption via temp file when needed.
+ * initialContent: used when creating a new note (written to file/temp before opening).
+ * Returns true on success.
+ */
+function openNoteInEditor(filePath: string, initialContent?: string): boolean {
+  const editor = getEditor();
+
+  if (isEncryptionEnabled()) {
+    const tempPath = path.join(os.tmpdir(), `daily_note_${randomUUID()}.md`);
+    try {
+      let content: string;
+      if (initialContent !== undefined) {
+        content = initialContent;
+      } else {
+        const raw = fs.readFileSync(filePath);
+        content = isEncryptedBuffer(raw) ? decrypt(raw).toString('utf-8') : raw.toString('utf-8');
+      }
+      fs.writeFileSync(tempPath, content, 'utf-8');
+      const result = spawnSync(editor, [tempPath], { stdio: 'inherit' });
+      if (result.status === 0) {
+        const edited = fs.readFileSync(tempPath);
+        fs.writeFileSync(filePath, encrypt(edited));
+        return true;
+      }
+      return false;
+    } finally {
+      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    }
+  } else {
+    if (initialContent !== undefined && !fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, initialContent, 'utf-8');
+    }
+    const result = spawnSync(editor, [filePath], { stdio: 'inherit' });
+    return result.status === 0;
+  }
+}
+
+/**
+ * Open a new note in the user's editor
  */
 export function editNote(dateOrLabel?: string): void {
   const now = new Date();
@@ -69,53 +192,32 @@ export function editNote(dateOrLabel?: string): void {
   let label: string | undefined;
 
   if (!dateOrLabel) {
-    // No argument - use current date and time
     datePart = formatDate(now);
     timePart = formatTime(now);
   } else if (/^\d{4}-\d{2}-\d{2}$/.test(dateOrLabel)) {
-    // Argument is a date - use current time
     datePart = dateOrLabel;
     timePart = formatTime(now);
   } else {
-    // Argument is a label - use current date and time with label
     datePart = formatDate(now);
     timePart = formatTime(now);
     label = dateOrLabel;
   }
 
   const filePath = getNoteFilePath(datePart, timePart, label);
-  const editor = getEditor();
 
-  // Create initial template if file doesn't exist
+  let initialContent: string | undefined;
   if (!fs.existsSync(filePath)) {
-    const template = `# Meeting Notes - ${datePart} ${timePart.substring(0,2)}:${timePart.substring(2)}${label ? ` (${label})` : ''}
-
-## Attendees
--
-
-## Agenda
--
-
-## Discussion
--
-
-## Action Items
-- [ ]
-
-## Next Steps
--
-`;
-    fs.writeFileSync(filePath, template, 'utf-8');
+    initialContent = getTemplate('note', {
+      title: label ?? '',
+      date: datePart,
+      time: formatDisplayTime(now),
+    });
   }
 
-  // Spawn editor and wait for it to close
-  const result = spawnSync(editor, [filePath], {
-    stdio: 'inherit', // This allows the editor to take over the terminal
-  });
+  const success = openNoteInEditor(filePath, initialContent);
 
-  if (result.status === 0) {
-    const displayName = path.basename(filePath);
-    console.log(chalk.green('✓'), 'Note saved:', chalk.cyan(displayName));
+  if (success) {
+    console.log(chalk.green('✓'), 'Note saved:', chalk.cyan(path.basename(filePath)));
   } else {
     console.log(chalk.red('✗'), 'Editor exited with error');
   }
@@ -130,7 +232,7 @@ export function listNotes(): void {
   const files = fs.readdirSync(NOTES_DIR)
     .filter(f => f.endsWith('.md'))
     .sort()
-    .reverse(); // Most recent first
+    .reverse();
 
   if (files.length === 0) {
     console.log(chalk.gray('No notes yet. Create one with:'), chalk.cyan('note'));
@@ -157,13 +259,11 @@ function findNoteFile(indexOrSearch: string): string | null {
     .sort()
     .reverse();
 
-  // Try as index first
   const index = parseInt(indexOrSearch) - 1;
   if (!isNaN(index) && index >= 0 && index < files.length) {
     return path.join(NOTES_DIR, files[index]);
   }
 
-  // Try to find by search term
   const matchingFile = files.find(f => f.includes(indexOrSearch));
   if (matchingFile) {
     return path.join(NOTES_DIR, matchingFile);
@@ -183,7 +283,10 @@ export function showNote(indexOrSearch: string): void {
     return;
   }
 
-  const content = fs.readFileSync(filePath, 'utf-8');
+  const raw = fs.readFileSync(filePath);
+  const content = isEncryptedBuffer(raw)
+    ? decrypt(raw).toString('utf-8')
+    : raw.toString('utf-8');
   console.log(content);
 }
 
@@ -198,16 +301,10 @@ export function editExistingNote(indexOrSearch: string): void {
     return;
   }
 
-  const editor = getEditor();
+  const success = openNoteInEditor(filePath);
 
-  // Spawn editor and wait for it to close
-  const result = spawnSync(editor, [filePath], {
-    stdio: 'inherit',
-  });
-
-  if (result.status === 0) {
-    const displayName = path.basename(filePath);
-    console.log(chalk.green('✓'), 'Note saved:', chalk.cyan(displayName));
+  if (success) {
+    console.log(chalk.green('✓'), 'Note saved:', chalk.cyan(path.basename(filePath)));
   } else {
     console.log(chalk.red('✗'), 'Editor exited with error');
   }

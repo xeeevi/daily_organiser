@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { TodoStore, Todo } from './types';
+import { isEncryptionEnabled, encrypt, decrypt, isEncryptedBuffer } from './encryption';
 
 // iCloud Drive path for automatic sync across Macs
 const ICLOUD_DIR = path.join(
@@ -49,7 +50,8 @@ export function loadTodos(): Todo[] {
   }
 
   try {
-    const data = fs.readFileSync(DATA_FILE, 'utf-8');
+    const raw = fs.readFileSync(DATA_FILE);
+    const data = isEncryptedBuffer(raw) ? decrypt(raw).toString('utf-8') : raw.toString('utf-8');
     const store: TodoStore = JSON.parse(data);
 
     // Convert date strings back to Date objects
@@ -71,7 +73,9 @@ export function saveTodos(todos: Todo[]): void {
   const store: TodoStore = { todos };
 
   try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2), 'utf-8');
+    const json = JSON.stringify(store, null, 2);
+    const output = isEncryptionEnabled() ? encrypt(Buffer.from(json, 'utf-8')) : Buffer.from(json, 'utf-8');
+    fs.writeFileSync(DATA_FILE, output);
   } catch (error) {
     console.error('Error saving todos:', error);
     throw error;

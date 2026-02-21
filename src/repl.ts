@@ -2,7 +2,7 @@ import { createInterface } from 'readline';
 import chalk from 'chalk';
 import { addTodo, listTodos, toggleTodo, deleteTodo, editTodo, showTodo, moveTodo } from './commands';
 import { getStorageLocation, isUsingICloud } from './storage';
-import { editNote, listNotes, showNote, deleteNote, editExistingNote } from './notes';
+import { editNote, listNotes, showNote, deleteNote, editExistingNote, editTemplate, listTemplates } from './notes';
 import { Mode } from './types';
 
 // Create horizontal separator line
@@ -109,6 +109,10 @@ function handleSharedCommand(command: string, _args: string[], rl: ReturnType<ty
       rl.close();
       return true;
 
+    case 'templates':
+      listTemplates();
+      return true;
+
     default:
       return false;
   }
@@ -161,6 +165,8 @@ function handleTodoCommand(command: string, args: string[]): void {
     case 'edit':
       if (args.length === 0) {
         console.log(chalk.red('✗'), 'Please provide a todo number or ID');
+      } else if (args[0] === 'template') {
+        editTemplate('todo-note');
       } else {
         editTodo(args[0]);
       }
@@ -212,6 +218,8 @@ function handleNotesCommand(command: string, args: string[]): void {
     case 'edit':
       if (args.length === 0) {
         console.log(chalk.red('✗'), 'Usage: edit <#|search>');
+      } else if (args[0] === 'template') {
+        editTemplate('note');
       } else {
         editExistingNote(args[0]);
       }
@@ -287,6 +295,7 @@ function showTodoHelp(): void {
   console.log(chalk.cyan('  add <text> --due <date>') + '  Add a todo with due date');
   console.log(chalk.cyan('  cat <#>') + '                Show todo details with notes');
   console.log(chalk.cyan('  edit <#>') + '               Edit notes for a todo');
+  console.log(chalk.cyan('  edit template') + '          Edit the todo note template');
   console.log(chalk.cyan('  toggle <#>, done <#>') + '    Toggle todo completion');
   console.log(chalk.cyan('  delete <#>, rm <#>') + '      Delete a todo');
   console.log(chalk.cyan('  move <#> <#>, mv <#> <#>') + '  Reorder todos');
@@ -300,7 +309,8 @@ function showNotesHelp(): void {
   console.log(chalk.cyan('  list, ls') + '               List all notes');
   console.log(chalk.cyan('  cat <#|search>') + '         Display note content');
   console.log(chalk.cyan('  edit <#|search>') + '        Edit an existing note');
-  console.log(chalk.cyan('  delete <#>, rm <#>') + '      Delete a note');
+  console.log(chalk.cyan('  edit template') + '          Edit the note template');
+  console.log(chalk.cyan('  delete <#>, rm <#>') + '     Delete a note');
   console.log();
   showSharedHelp();
 }
@@ -309,6 +319,9 @@ function showSharedHelp(): void {
   console.log(chalk.bold('Switch Mode:'));
   console.log(chalk.cyan('  todo') + '                   Switch to todo mode');
   console.log(chalk.cyan('  notes') + '                  Switch to notes mode');
+  console.log();
+  console.log(chalk.bold('Templates:'));
+  console.log(chalk.cyan('  templates') + '              List both note templates');
   console.log();
   console.log(chalk.bold('System:'));
   console.log(chalk.cyan('  info') + '                   Show storage location and sync status');
